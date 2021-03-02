@@ -199,13 +199,29 @@ async function addForeign({fromTable, fromColumn, toTable, toColumn, cascade = f
 
     if (!hasForeignKey) {
         logging.info(`Adding foreign key for: ${fromColumn} in ${fromTable} to ${toColumn} in ${toTable}`);
-        return (transaction || db.knex).schema.table(fromTable, function (table) {
+
+        //disable and re-enable foreign key checks on sqlite because of https://github.com/knex/knex/issues/4155
+        let foreignKeysEnabled;
+        if (db.knex.client.config.client === 'sqlite3') {
+            foreignKeysEnabled = await db.knex.raw('PRAGMA foreign_keys;');
+            if (foreignKeysEnabled[0].foreign_keys) {
+                await db.knex.raw('PRAGMA foreign_keys = OFF;');
+            }
+        }
+
+        await (transaction || db.knex).schema.table(fromTable, function (table) {
             if (cascade) {
                 table.foreign(fromColumn).references(`${toTable}.${toColumn}`).onDelete('CASCADE');
             } else {
                 table.foreign(fromColumn).references(`${toTable}.${toColumn}`);
             }
         });
+
+        if (db.knex.client.config.client === 'sqlite3') {
+            if (foreignKeysEnabled[0].foreign_keys) {
+                await db.knex.raw('PRAGMA foreign_keys = ON;');
+            }
+        }
     } else {
         logging.warn(`Skipped adding foreign key for ${fromColumn} in ${fromTable} to ${toColumn} in ${toTable} - foreign key already exists`);
     }
@@ -227,9 +243,25 @@ async function dropForeign({fromTable, fromColumn, toTable, toColumn, transactio
 
     if (hasForeignKey) {
         logging.info(`Dropping foreign key for: ${fromColumn} in ${fromTable} to ${toColumn} in ${toTable}`);
-        return (transaction || db.knex).schema.table(fromTable, function (table) {
+
+        //disable and re-enable foreign key checks on sqlite because of https://github.com/knex/knex/issues/4155
+        let foreignKeysEnabled;
+        if (db.knex.client.config.client === 'sqlite3') {
+            foreignKeysEnabled = await db.knex.raw('PRAGMA foreign_keys;');
+            if (foreignKeysEnabled[0].foreign_keys) {
+                await db.knex.raw('PRAGMA foreign_keys = OFF;');
+            }
+        }
+
+        await (transaction || db.knex).schema.table(fromTable, function (table) {
             table.dropForeign(fromColumn);
         });
+
+        if (db.knex.client.config.client === 'sqlite3') {
+            if (foreignKeysEnabled[0].foreign_keys) {
+                await db.knex.raw('PRAGMA foreign_keys = ON;');
+            }
+        }
     } else {
         logging.warn(`Skipped dropping foreign key for ${fromColumn} in ${fromTable} to ${toColumn} in ${toTable} - foreign key does not exist`);
     }
